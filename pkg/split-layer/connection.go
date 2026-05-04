@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/stay-miku-39/split-socket/pkg/utils"
@@ -32,17 +33,21 @@ const (
 )
 
 type SplitConn struct {
-	connectionId         ConnectionId
-	half                 bool
-	connectTimestamp     int64
-	halfTimeoutTimestamp int64
-	writeConnection      net.Conn
-	readConnection       net.Conn
-	readTimeout          time.Time
-	writeTimeout         time.Time
-	closed               bool
-	readBuffer           bytes.Buffer
-	writeBuffer          bytes.Buffer
+	connectionId            ConnectionId
+	half                    bool
+	connectTimestamp        int64
+	halfTimeoutTimestamp    int64
+	writeConnection         net.Conn
+	readConnection          net.Conn
+	readTimeout             time.Time
+	writeTimeout            time.Time
+	closed                  bool
+	readBuffer              bytes.Buffer
+	writeBuffer             bytes.Buffer
+	enableWriteCache        bool
+	writeCacheFlushInterval time.Duration
+	writeCacheMinSendSize   int
+	delayWriteMutex         sync.Mutex
 }
 
 type SplitFrame struct {
@@ -147,6 +152,9 @@ func (c *SplitConn) readFrame() error {
 }
 
 func (c *SplitConn) writeFrame() error {
+	if c.writeBuffer.Len() == 0 {
+		return nil
+	}
 	err := sendFrameHead(c.writeConnection, DataFrame, EmptyConnect, uint16(c.writeBuffer.Len()))
 	if err != nil {
 		return err
@@ -190,7 +198,34 @@ func (c *SplitConn) Write(b []byte) (int, error) {
 			writed += length
 		} else {
 			_, err := c.writeBuffer.Write(b)
-			return writed + len(b), err
+			if err != nil {
+				return writed, err
+			}
+			if !c.enableWriteCache {
+				err = c.Flush()
+				if err != nil {
+					return writed, err
+				}
+			} else if c.enableWriteCache && c.writeBuffer.Len() > c.writeCacheMinSendSize {
+				err = c.Flush()
+				if err != nil {
+					return writed, err
+				}
+			} else if c.enableWriteCache {
+				go func() {
+					lock := c.delayWriteMutex.TryLock()
+					if !lock {
+						return
+					}
+					defer c.delayWriteMutex.Unlock()
+					time.Sleep(c.writeCacheFlushInterval)
+					err := c.Flush()
+					if err != nil {
+						connLogger.Warn("auto flush conn faild: %v", c.connectionId)
+					}
+				}()
+			}
+			return writed + len(b), nil
 		}
 	}
 	return writed, nil
@@ -206,6 +241,7 @@ func (c *SplitConn) Close() error {
 	var rt error
 	c.closed = true
 	if c.writeConnection != nil {
+		c.Flush()
 		err := c.writeConnection.Close()
 		if err != nil {
 			rt = err
@@ -254,4 +290,12 @@ func Flush(conn any) error {
 		return flusher.Flush()
 	}
 	return nil
+}
+
+func (c *SplitConn) SetEnableWriteCache(enable bool) {
+	c.enableWriteCache = enable
+}
+
+func (c *SplitConn) GetEnableWriteCache() bool {
+	return c.enableWriteCache
 }

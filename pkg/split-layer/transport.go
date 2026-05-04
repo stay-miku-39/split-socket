@@ -19,6 +19,11 @@ type SplitTransport struct {
 	maxHalfConnectionCount       int
 	maxFullConnectionCount       int
 	maxUnderLayerConnectionCount int
+
+	// connection
+	enableWriteCache        bool
+	writeCacheFlushInterval time.Duration
+	writeCacheMinSendSize   int
 }
 
 type SplitConfig struct {
@@ -29,6 +34,11 @@ type SplitConfig struct {
 	MaxHalfConnectionCount       int
 	MaxFullConnectionCount       int
 	MaxUnderLayerConnectionCount int
+
+	//conn config
+	EnableWriteCache        bool
+	WriteCacheFlushInterval time.Duration
+	WriteCacheMinSendSize   int
 }
 
 func NewSplitTransport(config *SplitConfig) *SplitTransport {
@@ -39,6 +49,10 @@ func NewSplitTransport(config *SplitConfig) *SplitTransport {
 		maxHalfConnectionCount:       config.MaxHalfConnectionCount,
 		maxFullConnectionCount:       config.MaxFullConnectionCount,
 		maxUnderLayerConnectionCount: config.MaxUnderLayerConnectionCount,
+
+		enableWriteCache:        config.EnableWriteCache,
+		writeCacheFlushInterval: config.WriteCacheFlushInterval,
+		writeCacheMinSendSize:   config.WriteCacheMinSendSize,
 	}
 }
 

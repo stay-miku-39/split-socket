@@ -19,6 +19,9 @@ type SplitListener struct {
 	maxHalfConnectionCount       int
 	maxFullConnectionCount       int
 	maxUnderLayerConnectionCount int
+	enableWriteCache             bool
+	writeCacheFlushInterval      time.Duration
+	writeCacheMinSendSize        int
 
 	// mutex protected
 	pendingQueue *utils.ChainList[*SplitConn] // use for upDownConnectTimeout, half connection
@@ -52,14 +55,17 @@ func (l *SplitListener) newHalfConnection(conn net.Conn, connType ConnectType, c
 		up = conn
 	}
 	return &SplitConn{
-		connectionId:         connId,
-		half:                 true,
-		closed:               false,
-		connectTimestamp:     time.Now().UnixMilli(),
-		halfTimeoutTimestamp: time.Now().Add(l.upDownConnectTimeout).UnixMilli(),
-		writeConnection:      up,
-		readConnection:       down,
-		readTimeout:          time.Time{},
-		writeTimeout:         time.Time{},
+		connectionId:            connId,
+		half:                    true,
+		closed:                  false,
+		connectTimestamp:        time.Now().UnixMilli(),
+		halfTimeoutTimestamp:    time.Now().Add(l.upDownConnectTimeout).UnixMilli(),
+		writeConnection:         up,
+		readConnection:          down,
+		readTimeout:             time.Time{},
+		writeTimeout:            time.Time{},
+		enableWriteCache:        l.enableWriteCache,
+		writeCacheFlushInterval: l.writeCacheFlushInterval,
+		writeCacheMinSendSize:   l.writeCacheMinSendSize,
 	}
 }

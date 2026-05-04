@@ -44,6 +44,9 @@ func (t *SplitTransport) Listen(addr string) (net.Listener, error) {
 		maxFullConnectionCount:       t.maxFullConnectionCount,
 		maxUnderLayerConnectionCount: t.maxUnderLayerConnectionCount,
 		underlayerConnQueue:          underlayerQueue,
+		enableWriteCache:             t.enableWriteCache,
+		writeCacheFlushInterval:      t.writeCacheFlushInterval,
+		writeCacheMinSendSize:        t.writeCacheMinSendSize,
 	}
 	listener.start()
 	return listener, nil

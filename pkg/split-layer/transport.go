@@ -24,6 +24,10 @@ type SplitTransport struct {
 	enableWriteCache        bool
 	writeCacheFlushInterval time.Duration
 	writeCacheMinSendSize   int
+
+	// client
+	writeUnderlayer Transport
+	readUnderlayer  Transport
 }
 
 type SplitConfig struct {
@@ -58,4 +62,12 @@ func NewSplitTransport(config *SplitConfig) *SplitTransport {
 
 func (t *SplitTransport) WithTransport(transport Transport) {
 	t.underlayer = transport
+}
+
+func (t *SplitTransport) WithReadTransport(transport Transport) {
+	t.readUnderlayer = transport
+}
+
+func (t *SplitTransport) WithWriteTransport(transport Transport) {
+	t.writeUnderlayer = transport
 }

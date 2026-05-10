@@ -16,6 +16,7 @@
     5. session机制维护逻辑连接
     6. Client2Server使用超时机制确定连接是否存在，使用心跳帧机制(http1.1)
     7. Server2Client使用断连后超时确定连接是否存在(允许在断开后重连)
+    8. Client2Server使用简单的滑动窗口优化速度
 
 - TLS层(可选)
     1. 裸TLS层或TLS+HTTP

@@ -182,3 +182,80 @@ func (c *ChainList[T]) String() string {
 
 	return builder.String()
 }
+
+func (c *ChainList[T]) ForEach(callback func(index uint, item T) bool) {
+	node := c.first
+	var index uint = 0
+	for node != nil && callback(index, node.data) {
+		node = node.end
+		index++
+	}
+}
+
+func (c *ChainList[T]) DeleteF(callback func(index uint, item T) bool) (deleted int) {
+	if c.len == 0 {
+		return
+	}
+	node := c.first
+	var index uint = 0
+	deleted = 0
+	for node != nil {
+		if callback(index, node.data) {
+			deleted++
+			if node.head == nil && node.end == nil {
+				c.first = nil
+				c.last = nil
+				c.len = 0
+				return
+			} else if node.head == nil {
+				c.len--
+				c.first = node.end
+				c.first.head = nil
+			} else if node.end == nil {
+				c.len--
+				c.last = node.head
+				c.last.end = nil
+				return
+			} else {
+				c.len--
+				node.head.end = node.end
+				node.end.head = node.head
+			}
+		}
+		node = node.end
+		index++
+	}
+	return
+}
+
+func (c *ChainList[T]) DeleteFOnce(callback func(index uint, item T) bool) {
+	if c.len == 0 {
+		return
+	}
+	node := c.first
+	var index uint = 0
+	for node != nil {
+		if callback(index, node.data) {
+			if node.head == nil && node.end == nil {
+				c.first = nil
+				c.last = nil
+				c.len = 0
+			} else if node.head == nil {
+				c.len--
+				c.first = node.end
+				c.first.head = nil
+			} else if node.end == nil {
+				c.len--
+				c.last = node.head
+				c.last.end = nil
+			} else {
+				c.len--
+				node.head.end = node.end
+				node.end.head = node.head
+			}
+			return
+		}
+		node = node.end
+		index++
+	}
+}

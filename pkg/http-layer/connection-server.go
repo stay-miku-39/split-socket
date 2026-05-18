@@ -22,7 +22,7 @@ type HTTPServerConnection struct {
 	seq       uint16
 	useHttp2  bool
 	// use for Server to Client
-	writer             http.ResponseWriter
+	req                *wrapperedRequest
 	disconnect         bool
 	disconnectNotifyer func()
 	// use for Client to Server
@@ -135,7 +135,7 @@ func (c *HTTPServerConnection) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func (c *HTTPServerConnection) proccessHTTPRequest(writer http.ResponseWriter, request *http.Request) error {
+func (c *HTTPServerConnection) proccessHTTPRequest(r *wrapperedRequest) error {
 	t := make([]byte, 2)
 	_, err := request.Body.Read(t)
 	if err != nil {

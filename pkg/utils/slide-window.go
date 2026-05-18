@@ -160,7 +160,7 @@ func (w *SlideWindow) PutWithWait(seq uint16, callback func(b []byte) (uint16, e
 	return nil
 }
 
-// return when apply cache success
+// return when apply cache success or no empty cache slot
 func (w *SlideWindow) Put(seq uint16, callback func(b []byte) (uint16, error)) error {
 	w.mutex.Lock()
 	if w.closed {

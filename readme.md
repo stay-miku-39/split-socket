@@ -1,6 +1,7 @@
+灵感来源与xhttp，以分层的方式实现基于http的上下行分离的传输协议。
 
 架构：
-- split-socket层
+- split-socket层 (已实现)
     1. 负责上下行分离
     2. 上行对应一个Writer接口，下行对应一个Reader接口
     3. 类似tcp socket的用法,实现Listener接口、Transport接口和Conn接口
@@ -8,7 +9,7 @@
     5. 可靠性靠底层传输层
 - AES加密/混淆层(可选)
     1. 实现Listener接口、Transport接口和Conn接口
-- HTTP层(可选)
+- HTTP层(可选) (服务端逻辑部分实现)
     1. 实现Listener接口、Transport接口和Conn接口
     2. 分别实现上行和下行逻辑
     3. http/1.1 http/2
@@ -17,8 +18,10 @@
     6. Client2Server使用超时机制确定连接是否存在，使用心跳帧机制(http1.1)
     7. Server2Client使用断连后超时确定连接是否存在(允许在断开后重连)
     8. Client2Server使用简单的滑动窗口优化速度
-
+    9. 对http库的包装
 - TLS层(可选)
     1. 裸TLS层或TLS+HTTP
     2. tls1.3
+    3. 对tls库的简单包装
 - TCP/UDP层(可选)
+    1. 对net库的简单包装

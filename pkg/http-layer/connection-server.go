@@ -6,11 +6,12 @@ package httplayer
 
 import (
 	"bytes"
-	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
-	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/stay-miku-39/split-socket/pkg/utils"
@@ -22,9 +23,11 @@ type HTTPServerConnection struct {
 	seq       uint16
 	useHttp2  bool
 	// use for Server to Client
-	req                *wrapperedRequest
-	disconnect         bool
-	disconnectNotifyer func()
+	req             *wrapperedRequest
+	mu              sync.Mutex
+	disconnect      bool
+	closeSignal     chan struct{}
+	disconnectTimer *utils.Timer
 	// use for Client to Server
 	lastActivateTimestamp uint64
 	windowSize            uint16
@@ -33,31 +36,50 @@ type HTTPServerConnection struct {
 	readErr               error
 	closed                bool
 	closeCallback         func()
+	timeout               *utils.Timer
 }
 
 func (c *HTTPServerConnection) writeFrame(b []byte) error {
-	flusher, ok := c.writer.(http.Flusher)
-	if !ok {
-		return fmt.Errorf("Unsupported underlayer connection")
-	}
-	seq := make([]byte, 2)
-	binary.BigEndian.PutUint16(seq, c.seq)
-	_, err := c.writer.Write(seq)
+	err := c.req.writeDataFrame(c.seq, b)
 	if err != nil {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.disconnectTimer == nil {
+			c.disconnectTimer = utils.NewTimer(func() {
+				c.Close()
+			})
+			c.disconnectTimer.Reset(S2CResumeTimeout)
+		}
+		c.disconnect = true
 		return err
 	}
-	binary.BigEndian.PutUint16(seq, uint16(len(b)))
-	_, err = c.writer.Write(seq)
-	if err != nil {
-		return err
-	}
-	_, err = c.writer.Write(b)
-	if err != nil {
-		return err
-	}
-	flusher.Flush()
 	c.seq++
 	return nil
+}
+
+func (c *HTTPServerConnection) startHeartbeatTask() {
+	if c.connType == C2SConnection {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(HeartBeatInterval)
+		for {
+			select {
+			case <-ticker.C:
+				c.req.writeHeartbeatFrame()
+			case <-c.closeSignal:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+}
+
+func (c *HTTPServerConnection) startC2STimeout() {
+	c.timeout = utils.NewTimer(func() {
+		c.Close()
+	})
+	c.timeout.Reset(C2STimeout)
 }
 
 func (c *HTTPServerConnection) Read(b []byte) (int, error) {
@@ -82,6 +104,9 @@ func (c *HTTPServerConnection) Read(b []byte) (int, error) {
 func (c *HTTPServerConnection) Write(b []byte) (int, error) {
 	if c.connType == C2SConnection {
 		return 0, fmt.Errorf("Unsupported operation on this connection")
+	}
+	if c.closed {
+		return 0, io.EOF
 	}
 	// wrote length
 	wl := 0
@@ -112,6 +137,7 @@ func (c *HTTPServerConnection) Close() error {
 	c.closed = true
 	c.closeCallback()
 	c.window.Close()
+	close(c.closeSignal)
 	return nil
 }
 
@@ -136,40 +162,60 @@ func (c *HTTPServerConnection) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *HTTPServerConnection) proccessHTTPRequest(r *wrapperedRequest) error {
-	t := make([]byte, 2)
-	_, err := request.Body.Read(t)
-	if err != nil {
-		return err
-	}
-	seq := binary.BigEndian.Uint16(t)
-	_, err = request.Body.Read(t)
-	if err != nil {
-		return err
-	}
-	length := binary.BigEndian.Uint16(t)
-	if length > MaxFrameLength {
-		return fmt.Errorf("FrameSize exceed max frame size: %v", length)
-	}
-	err = c.window.Put(seq, func(b []byte) (uint16, error) {
-		_, err := io.ReadFull(request.Body, b[:length])
-		if err != nil {
-			c.readErr = err
-			return 0, err
+	if c.connType == S2CConnection {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.disconnectTimer != nil && c.disconnectTimer.HasFired() {
+			return errors.New("This connection is timeout")
 		}
-		// todo: 成功响应
-		return length, nil
-	})
-	return err
-}
-
-func (c *HTTPServerConnection) setDisconnectNotifyer(notifyer func()) {
-	c.disconnectNotifyer = notifyer
+		seqString := r.w.Header().Get(ResumeConnectionSeqHeader)
+		seq, err := strconv.Atoi(seqString)
+		if err != nil {
+			return err
+		}
+		if seq > 255 || seq < 0 {
+			return errors.New("Error seq range")
+		}
+		if uint16(seq) != c.seq {
+			return errors.New("Error seq with local seq")
+		}
+		if c.disconnectTimer != nil {
+			c.disconnectTimer.Close()
+			c.disconnectTimer = nil
+		}
+		c.disconnect = false
+		c.req = r
+		return nil
+	} else if c.connType == C2SConnection {
+		reqType, err := r.getFrameType()
+		if err != nil {
+			r.closeWithError(err.Error())
+			return err
+		}
+		if reqType != DataFrameType {
+			c.timeout.Reset(C2STimeout)
+			return nil
+		}
+		seq, err := r.getFrameSeq()
+		if err != nil {
+			r.closeWithError(err.Error())
+			return err
+		}
+		err = c.window.Put(seq, func(b []byte) (uint16, error) {
+			_, length, err := r.readFrame(b)
+			if err != nil {
+				c.readErr = err
+				return 0, err
+			}
+			r.closeWithSuccess("")
+			c.timeout.Reset(C2STimeout)
+			return length, nil
+		})
+		return err
+	}
+	return nil
 }
 
 func (c *HTTPServerConnection) setCloseCallback(callback func()) {
 	c.closeCallback = callback
-}
-
-func (c *HTTPServerConnection) checkTimeout() {
-
 }
